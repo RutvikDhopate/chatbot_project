@@ -5,14 +5,13 @@ from typing_extensions import TypedDict
 from dotenv import load_dotenv
 
 from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
 from langchain_groq.chat_models import ChatGroq
 from langchain_openai.chat_models import ChatOpenAI
 from langchain_google_genai.chat_models import ChatGoogleGenerativeAI
 from langgraph.checkpoint.memory import MemorySaver
-from llm_sandbox import SandboxSession
-from pydantic import BaseModel, Field
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
+from utils import format_prompt
 
 # Load ENV Varialbe
 load_dotenv()
@@ -29,18 +28,7 @@ class GraphState(TypedDict):
     iterations: int
     dataset_path: str
 
-# Data Model for Structured Output
-class CodeOutput(BaseModel):
-    prefix: str = Field(description="Description of approach to the problem")
-
 # Create the Prompt from the Text File
-def format_prompt(prompt_file):
-    prompt = ""
-    with open(prompt_file) as file:
-        for line in file:
-            prompt += line
-    return prompt
-
 system_prompt = format_prompt("llm_prompt.txt")
 
 # Prompt Template
@@ -49,10 +37,21 @@ output_gen_prompt = ChatPromptTemplate.from_messages([
 ])   
 
 # LangGraph Nodes Helper Functions
-def generate(state: GraphState, code_chain):
+def generate(state: GraphState, output_chain):
     try:
         print(f"Generation - {state['iterations']}")
-        solution = code_chain.invoke({"messages": state["messages"]})
+        messages = []
+        for role, content in state["messages"]:
+            if not content:
+                messages.append("Hi")
+            if role == "system":
+                messages.append(SystemMessage(content=content))
+            elif role == "user":
+                messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                messages.append(AIMessage(content=content))
+
+        solution = output_chain.invoke(messages)
     except Exception as e:
         state["error"] =  "yes"
         state["iterations"] += 1
@@ -60,30 +59,12 @@ def generate(state: GraphState, code_chain):
         return state
     
     if solution:
-        state["messages"].append(("assistant", f"{solution['parsed'].prefix}"))
-        state["generation"] = solution["parsed"]
+        state["messages"].append(("assistant", solution))
+        state["generation"] = {"output": solution}
         state["error"] = "no"
 
     state["iterations"] += 1
     return state
-
-def check_llm_output(tool_output):
-    """Check for parse error or failure to call the tool"""
-
-    # Error with Parsing
-    if tool_output["parsing_error"]:
-        # Report back output and parsing errors
-        raw_output = str(tool_output["raw"].content)
-        error = tool_output["parsing_error"]
-        print(f"Error parsing your output! Be sure to invoke the tool. Output: {raw_output}. \nParse Error: {error}")
-        return "parsing_error"
-
-    # Tool was not invoked
-    elif not tool_output["parsed"]:
-        print("Failure to invoke tool!")
-        return "tool_not_invoked"
-    
-    return tool_output
 
 def decide_finish(state: GraphState) -> str:
     if state['error'] == "no":
@@ -92,14 +73,6 @@ def decide_finish(state: GraphState) -> str:
         return 'generate'
     else:
         return 'end'
-    
-# def check_parsing_error(state: GraphState) -> str:
-#     if state['error'] == "no":
-#         return 'check_code'
-#     elif state['error'] == "yes" and state['iterations'] < 3:
-#         return 'generate'
-#     else:
-#         return 'check_code'
 
 # Retrieve the Appropriate LLM Based on User's Model Choice
 def retrieve_llm(model_choice="groq-llama"):
@@ -127,29 +100,19 @@ def processor(user_query: str, dataset_info: Dict, dataset_path: str, model_choi
         info += f"- {col['name']} ({col['type']})\n"
     info += f"\nSample data:\n{dataset_info['sample']}"
 
-    # Assemble prompt
-    prompt = f"""
-    {system_prompt}\n\n
-    User Query: {user_query}\n\n
-    Dataset Information: \n{info}\n\n
-    The dataset is available at '/sandbox/data.csv'
-    Provide the correct answers only based on your domain.
-    """
-
     # Initialize LLM Chain based on model choice
     llm = retrieve_llm(model_choice=model_choice)
-    structured_llm = llm.with_structured_output(CodeOutput, include_raw=True)
-    code_gen_chain = structured_llm | check_llm_output
+    code_gen_chain = llm
 
     # Create custom generate function that includes the node chain
     def generate_with_chain(state):
-        return generate(state, code_gen_chain)
+        if user_query != "":
+            return generate(state, code_gen_chain)
 
     # Build workflow graph
     workflow = StateGraph(GraphState)
     workflow.add_node("generate", generate_with_chain)
     workflow.add_edge(START, "generate")
-    # workflow.add_conditional_edges("generate", check_parsing_error, {"check_code": "check_code", "generate": "generate"})
     workflow.add_conditional_edges("generate", decide_finish, {"end": END, "generate": "generate"})
     thread_cfg = {"configurable": {"thread_id": uuid.uuid4()}}
     checkpointer = MemorySaver()
@@ -157,7 +120,10 @@ def processor(user_query: str, dataset_info: Dict, dataset_path: str, model_choi
 
     # Initialize Graph State
     initial_state: GraphState = {
-        "messages": [("user", prompt)],
+        "messages": [
+            ("system", f"""{system_prompt}\n\nDataset Info{info}"""),
+            ("user", user_query)
+        ],
         "iterations": 0,
         "error": "",
         "dataset_path": dataset_path,
@@ -167,4 +133,4 @@ def processor(user_query: str, dataset_info: Dict, dataset_path: str, model_choi
     # Invoke Graph
     final_state = graph.invoke(initial_state, config=thread_cfg)
     sol = final_state["generation"]
-    return {'prefix': sol.prefix}
+    return {'prefix': sol["output"].content if isinstance(sol["output"], AIMessage) else str(sol["output"])}

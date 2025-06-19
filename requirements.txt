@@ -9,3 +9,7 @@ langchain-groq
 langchain-google-genai
 langchain-openai
 openpyxl
+openai
+PyMuPDF
+pytesseract
+pillow

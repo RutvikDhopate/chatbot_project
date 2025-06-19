@@ -3,9 +3,8 @@ import pandas as pd
 import streamlit as st
 import json
 from dotenv import load_dotenv
-from llm_sandbox import SandboxSession
-from datetime import datetime
 from llm_processor import processor
+from utils import format_prompt, parse_image, parse_pdf
 
 
 # Load ENV Variable
@@ -79,6 +78,27 @@ with st.sidebar:
                 df = pd.read_excel(path)
             elif uploaded.name.endswith('json'):
                 df = pd.read_json(path)
+            elif uploaded.name.endswith('pdf'):
+                pdf_text = parse_pdf(path)
+                st.session_state.dataset_info = {
+                    "name": uploaded.name,
+                    "shape": (1, 1),
+                    "columns": [{"name": "pdf_text", "type": "string", "description": "", "sample": pdf_text[:200]}],
+                    "sample": pdf_text[:10000]
+                }
+                st.session_state.dataset = pd.DataFrame({"pdf_text": [pdf_text]})
+                st.success(f"{uploaded.name} loaded and parsed (PDF)")
+            elif uploaded.name.endswith(("jpg", "jpeg", "png")):
+                img_text = parse_image(path)
+                st.session_state.dataset_info = {
+                    "name": uploaded.name,
+                    "shape": (1, 1),
+                    "columns": [{"name": "pdf_text", "type": "string", "description": "", "sample": img_text[:200]}],
+                    "sample": img_text[:10000]
+                }
+                st.session_state.dataset = pd.DataFrame({"pdf_text": [img_text]})
+                st.success(f"{uploaded.name} loaded and parsed (Image)")
+
             else:
                 df = None
             df.to_csv(os.path.join(save_dir, 'data.csv'), index=False)
@@ -94,9 +114,10 @@ with st.sidebar:
                         for c in df.columns
                     ],
                     "sample": df.head(5).to_string()
-                }
+                }   
                 st.success(f"{uploaded.name} loaded correctly.")
                 st.write(f"Shape: {df.shape[0]} rows x {df.shape[1]} cols")
+                st.session_state.app_ready = True
         except Exception as e:
             st.error(f"Erorr loading dataset {e}")
 
@@ -114,22 +135,25 @@ with col1:
         st.dataframe(st.session_state.dataset.head(), use_container_width=True)
         st.subheader("Conversation")
 
-        # Display the Conversation
-        for i, message in enumerate(st.session_state.conversation):
-            with st.chat_message(message["role"]):
-                if message["role"] == "user":
-                    st.markdown(message["content"])
-                else:
-                    st.markdown(message["content"]["prefix"])
-
+        
         ui = st.chat_input("How can I assist you?")
         if ui:
+            # Add user message
+            st.session_state.conversation.append({"role": "user", "content": ui, "type": "text"})
+
+            # Generate output
             with st.spinner(f"Generating Output via {st.session_state.model_choice}..."):
                 try:
                     out = processor(ui, st.session_state.dataset_info, st.session_state.dataset_path, st.session_state.model_choice)
-                    st.session_state.conversation.append({"role": "user", "content": ui, "type": "text"})
                     st.session_state.conversation.append({"role": "bot", "content": {"prefix": out["prefix"]}, "type": "text"})
+                    if not out["prefix"]:
+                        st.error("No output received from the LLM.")
                 except Exception as e:
                     st.error(f"Error Generating Output: {e}")
-        else:
-            st.info("Please load a dataset first.")
+
+        for message in st.session_state.conversation:
+            with st.chat_message(message["role"]):
+                if message["role"] == "user":
+                    st.markdown(message["content"])
+                elif message["role"] == "bot":
+                    st.markdown(message["content"]["prefix"])
