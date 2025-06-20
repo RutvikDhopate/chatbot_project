@@ -3,6 +3,8 @@ import uuid
 from typing import List, Dict
 from typing_extensions import TypedDict
 from dotenv import load_dotenv
+import base64
+import mimetypes
 
 from langgraph.graph import StateGraph, START, END
 from langchain_groq.chat_models import ChatGroq
@@ -13,7 +15,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from utils import format_prompt
 
-# Load ENV Varialbe
+# Load ENV Variables
 load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -33,31 +35,46 @@ system_prompt = format_prompt("llm_prompt.txt")
 
 # Prompt Template
 output_gen_prompt = ChatPromptTemplate.from_messages([
-    ("system", f"{system_prompt}" )
+    ("system", f"{system_prompt}")
 ])   
 
-# LangGraph Nodes Helper Functions
+# Prepare messages with base64 image support
+def prepare_messages_with_image_support(state):
+    messages = []
+    for role, content in state["messages"]:
+        if role == "system":
+            messages.append(SystemMessage(content=content))
+        elif role == "user":
+            # Check if file is an image and embed base64 if so
+            mime, _ = mimetypes.guess_type(state.get("dataset_path", ""))
+            if mime and mime.startswith("image"):
+                try:
+                    with open(state["dataset_path"], "rb") as image_file:
+                        base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+                    messages.append(HumanMessage(content=[
+                        {"type": "text", "text": content},
+                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{base64_image}"}}
+                    ]))
+                    continue
+                except Exception as e:
+                    print(f"Error embedding image: {e}")
+            messages.append(HumanMessage(content=content))
+        elif role == "assistant":
+            messages.append(AIMessage(content=content))
+    return messages
+
+# LangGraph Node
 def generate(state: GraphState, output_chain):
     try:
         print(f"Generation - {state['iterations']}")
-        messages = []
-        for role, content in state["messages"]:
-            if not content:
-                messages.append("Hi")
-            if role == "system":
-                messages.append(SystemMessage(content=content))
-            elif role == "user":
-                messages.append(HumanMessage(content=content))
-            elif role == "assistant":
-                messages.append(AIMessage(content=content))
-
+        messages = prepare_messages_with_image_support(state)
         solution = output_chain.invoke(messages)
     except Exception as e:
         state["error"] =  "yes"
         state["iterations"] += 1
         print(f"Error during output generation: {e}")
         return state
-    
+
     if solution:
         state["messages"].append(("assistant", solution))
         state["generation"] = {"output": solution}
@@ -87,10 +104,9 @@ def retrieve_llm(model_choice="groq-llama"):
     elif model_choice == "gemini-2.5":
         return ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", api_key=GEMINI_API_KEY)
     else:
-        # Default to Groq Llama
         return ChatGroq(temperature=0.1, model="llama-3.3-70b-versatile", api_key=GROQ_API_KEY)
 
-
+# Processor Function
 def processor(user_query: str, dataset_info: Dict, dataset_path: str, model_choice="groq-llama") -> Dict:
     # Build Dataset Information into Text
     info = f"Dataset name: {dataset_info['name']}\n"
@@ -104,12 +120,12 @@ def processor(user_query: str, dataset_info: Dict, dataset_path: str, model_choi
     llm = retrieve_llm(model_choice=model_choice)
     code_gen_chain = llm
 
-    # Create custom generate function that includes the node chain
+    # Custom generator for LangGraph
     def generate_with_chain(state):
         if user_query != "":
             return generate(state, code_gen_chain)
 
-    # Build workflow graph
+    # Build the workflow
     workflow = StateGraph(GraphState)
     workflow.add_node("generate", generate_with_chain)
     workflow.add_edge(START, "generate")
@@ -118,7 +134,7 @@ def processor(user_query: str, dataset_info: Dict, dataset_path: str, model_choi
     checkpointer = MemorySaver()
     graph = workflow.compile(checkpointer=checkpointer)
 
-    # Initialize Graph State
+    # Initial graph state
     initial_state: GraphState = {
         "messages": [
             ("system", f"""{system_prompt}\n\nDataset Info{info}"""),
@@ -130,7 +146,7 @@ def processor(user_query: str, dataset_info: Dict, dataset_path: str, model_choi
         "generation": {}
     }
 
-    # Invoke Graph
+    # Run the graph
     final_state = graph.invoke(initial_state, config=thread_cfg)
     sol = final_state["generation"]
     return {'prefix': sol["output"].content if isinstance(sol["output"], AIMessage) else str(sol["output"])}

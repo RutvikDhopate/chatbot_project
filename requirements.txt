@@ -13,3 +13,5 @@ openai
 PyMuPDF
 pytesseract
 pillow
+groq
+PyPDF2

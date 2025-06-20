@@ -64,62 +64,77 @@ with st.sidebar:
 
     # Data Upload
     st.subheader("Upload Data")
-    uploaded = st.file_uploader("Choose a CSV/Excel/JSON/Image File", type=["csv", "xlsx", "xls", "json", "jpeg", "jpg", "png"])
-    if uploaded:
-        try:
-            save_dir = os.path.join("data", "user_datasets")
-            os.makedirs(save_dir, exist_ok=True)
-            path = os.path.join(save_dir, uploaded.name)
-            with open(path, 'wb') as file:
-                file.write(uploaded.getbuffer())
-            if uploaded.name.endswith('csv'):
-                df = pd.read_csv(path)
-            elif uploaded.name.endswith(('xls', 'xlsx')):
-                df = pd.read_excel(path)
-            elif uploaded.name.endswith('json'):
-                df = pd.read_json(path)
-            elif uploaded.name.endswith('pdf'):
-                pdf_text = parse_pdf(path)
-                st.session_state.dataset_info = {
-                    "name": uploaded.name,
-                    "shape": (1, 1),
-                    "columns": [{"name": "pdf_text", "type": "string", "description": "", "sample": pdf_text[:200]}],
-                    "sample": pdf_text[:10000]
-                }
-                st.session_state.dataset = pd.DataFrame({"pdf_text": [pdf_text]})
-                st.success(f"{uploaded.name} loaded and parsed (PDF)")
-            elif uploaded.name.endswith(("jpg", "jpeg", "png")):
-                img_text = parse_image(path)
-                st.session_state.dataset_info = {
-                    "name": uploaded.name,
-                    "shape": (1, 1),
-                    "columns": [{"name": "pdf_text", "type": "string", "description": "", "sample": img_text[:200]}],
-                    "sample": img_text[:10000]
-                }
-                st.session_state.dataset = pd.DataFrame({"pdf_text": [img_text]})
-                st.success(f"{uploaded.name} loaded and parsed (Image)")
+    combined_uploaded = st.file_uploader("Choose one or more CSV/Excel/JSON/Image File(s)", 
+                                type=["csv", "xlsx", "xls", "json", "jpeg", "jpg", "png"],
+                                accept_multiple_files=True)
+    print(combined_uploaded)
+    combined_df = pd.DataFrame()
+    if combined_uploaded:
+        for i, uploaded in enumerate(combined_uploaded):
+            try:
+                save_dir = os.path.join("data", "user_datasets")
+                os.makedirs(save_dir, exist_ok=True)
+                path = os.path.join(save_dir, uploaded.name)
+                with open(path, 'wb') as file:
+                    file.write(uploaded.getbuffer())
+                if uploaded.name.endswith('csv'):
+                    df = pd.read_csv(path)
+                elif uploaded.name.endswith(('xls', 'xlsx')):
+                    df = pd.read_excel(path)
+                elif uploaded.name.endswith('json'):
+                    df = pd.read_json(path)
+                elif uploaded.name.endswith('pdf'):
+                    pdf_text = parse_pdf(path)
+                    # st.session_state.dataset_info = {
+                    #     "name": uploaded.name,
+                    #     "shape": (1, 1),
+                    #     "columns": [{"name": "pdf_text", "type": "string", "description": "", "sample": pdf_text[:200]}],
+                    #     "sample": pdf_text[:10000]
+                    # }
+                    # st.session_state.dataset = pd.DataFrame({"pdf_text": [pdf_text]})
+                    df = pd.DataFrame({"source_file": [uploaded.name], "text": [pdf_text]})
+                    st.success(f"{uploaded.name} loaded and parsed (PDF)")
+                elif uploaded.name.endswith(("jpg", "jpeg", "png")):
+                    img_text = parse_image(path)
+                    # st.session_state.dataset_info = {
+                    #     "name": uploaded.name,
+                    #     "shape": (1, 1),
+                    #     "columns": [{"name": "pdf_text", "type": "string", "description": "", "sample": img_text[:200]}],
+                    #     "sample": img_text[:10000]
+                    # }
+                    # st.session_state.dataset = pd.DataFrame({"pdf_text": [img_text]})
+                    df = pd.DataFrame({"source_file": [uploaded.name], "text": [img_text]})
+                    st.success(f"{uploaded.name} loaded and parsed (Image)")
+                else:
+                    df = None
+                
+                if df is not None:
+                    combined_df = pd.concat([combined_df, df], ignore_index=True)
+                    combined_df.reset_index(drop=True, inplace=True)
+            except Exception as e:
+                st.error(f"Erorr loading dataset {e}")
 
-            else:
-                df = None
-            df.to_csv(os.path.join(save_dir, 'data.csv'), index=False)
-            # Figure out image parsing to text
-            if df is not None:
-                st.session_state.dataset = df
-                st.session_state.dataset_path = os.path.join(save_dir, 'data.csv')
-                st.session_state.dataset_info = {
-                    "name": uploaded.name,
-                    "shape": df.shape,
-                    "columns": [
-                        {"name": c, "type": str(df[c].dtype), "description": "", "sample": str(df[c].iloc[0]) if not df.empty else ""} 
-                        for c in df.columns
-                    ],
-                    "sample": df.head(5).to_string()
-                }   
-                st.success(f"{uploaded.name} loaded correctly.")
-                st.write(f"Shape: {df.shape[0]} rows x {df.shape[1]} cols")
-                st.session_state.app_ready = True
-        except Exception as e:
-            st.error(f"Erorr loading dataset {e}")
+        if not combined_df.empty:
+            combined_path = os.path.join(save_dir, "data.csv")
+            combined_df.to_csv(combined_path, index=False)
+
+            df = combined_df
+        # df.to_csv(os.path.join(save_dir, 'data.csv'), index=False)
+        # # Figure out image parsing to text
+        # if df is not None:
+            st.session_state.dataset = df
+            st.session_state.dataset_path = os.path.join(save_dir, 'data.csv')
+            st.session_state.dataset_info = {
+                "name": uploaded.name,
+                "shape": df.shape,
+                "columns": [
+                    {"name": c, "type": str(df[c].dtype), "description": "", "sample": str(df[c].iloc[0]) if not df.empty else ""} 
+                    for c in df.columns
+                ],
+                "sample": df.head(50).to_string() + " " + df.tail(50).to_string()
+            }   
+            st.success(f"{uploaded.name} loaded correctly.")
+            st.write(f"Shape: {df.shape[0]} rows x {df.shape[1]} cols")
 
     
     if st.button("Clear Conversation"):
