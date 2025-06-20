@@ -18,8 +18,7 @@ if 'model_choice' not in st.session_state: st.session_state.model_choice = "groq
 # Title and Description
 st.title("Customer Support ChatBot")
 st.markdown("""
-This is a domain-specific ChatBot used to help users understand any issues related to 
-swim channels like Shipment, Order Status, Finance, Payments, etc.
+This is a domain-specific ChatBot used to help users understand any issues related to swim channels.
 """)
 
 # Sidebar - Configuration
