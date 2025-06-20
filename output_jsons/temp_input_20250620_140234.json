@@ -1,0 +1,25 @@
+{
+  "conversation": [
+    {
+      "user": {
+        "type": "text",
+        "content": "Hello!"
+      },
+      "assistant": "Hello! You've uploaded a dataset. I'm ready to help with any questions about Payments, Finance, Inventory, or Sales related to the data. What's your question?"
+    },
+    {
+      "user": {
+        "type": "image",
+        "content": "data:image/png;base64,iVBORw0K...<truncated>..."
+      },
+      "assistant": "I'm ready to help. What questions do you have about the uploaded data?"
+    },
+    {
+      "user": {
+        "type": "text",
+        "content": "What is in this image?"
+      },
+      "assistant": "The image appears to be a flowchart or a step-by-step guide on \"Brushing Teeth\". It outlines 8 steps: \n1. Find Toothbrush\n2. Find Toothpaste\n3. Apply Paste on brush\n4. Brush your teeth \n5. Rinse Your teeth\n6. Floss your teeth\nand two additional steps: \n7. Apply in horizontal longitudinal way \n8. Brush your teeth in top down motion."
+    }
+  ]
+}
