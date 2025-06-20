@@ -83,6 +83,11 @@ with st.sidebar:
         file_text = process_file_type(file=file)
         processed_files.append((file, file_text))
 
+    # Disclaimer Information
+    st.info("Please note that if you click x on the uploaded file, it is still passed to the LLM as context.\n"
+    "Please refresh the screen to start over.\n"
+    "Alternatively, please hit Clear Conversation to clear LLM's context")
+
     # Clear conversation button
     if st.button("Clear Conversation"):
         st.session_state.conversation = []
