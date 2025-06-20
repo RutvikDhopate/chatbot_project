@@ -90,16 +90,25 @@ with st.sidebar:
             del st.session_state.assistant
         st.success("Conversation cleared.")
 
-# # Instantiate ChatBot
+# Instantiate ChatBot
 provider, model = MODEL_PROVIDER_MAP[st.session_state.model_choice]
 if 'assistant' not in st.session_state: st.session_state.assistant = ChatBot(provider=provider, model=model)
 
-# # Reinitialize assistant if model/provider changed
-if (
+# Reinitialize assistant if model/provider changed
+else:
+    if (
     st.session_state.assistant.model != model or
     st.session_state.assistant.provider != provider
-):
-    st.session_state.assistant = ChatBot(provider=provider, model=model)
+    ):
+        old_messages = st.session_state.assistant.messages if 'assistant' in st.session_state else []
+        st.session_state.assistant = ChatBot(provider=provider, model=model)
+        for msg in old_messages:
+            if msg["role"] == "user":
+                st.session_state.assistant.add_user_message(msg["content"])
+            elif msg["role"] == "assistant":
+                st.session_state.assistant.add_bot_message(msg["content"])
+
+
 
 # Layout - Preview + Conversation
 col1, col2 = st.columns([2.5, 2.5])
@@ -108,7 +117,7 @@ with col1:
     st.subheader("Dataset Preview")
     for file, file_text in processed_files:
         preview_file(file)
-        
+
         # Process File Text to Add it to LLM's messages
         if "image" in file.type:
             st.session_state.assistant.add_user_message(file_text, content_type="image")
@@ -133,7 +142,7 @@ with col2:
             except Exception as e:
                 st.error(f"Error generating output: {e}")
 
-    # ✅ Now render full conversation (including latest input/response)
+    # Render full conversation
     for message in reversed(st.session_state.conversation):
         with st.chat_message(message["role"]):
             st.markdown(message["content"] if message["role"] == "user" else message["content"]["prefix"])
