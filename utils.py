@@ -15,15 +15,15 @@ def format_prompt(prompt_file):
             prompt += line
     return prompt
 
-# # Parsing Text from PDF
+# Parsing Text from PDF
 def parse_pdf(pdf):
     pdf_text = ""
     with fitz.open(pdf) as file:
         for page in file:
-            pdf_text += pdf_text
+            pdf_text += page
     return pdf_text
 
-# # Parsing Text from Image
+# Parsing Text from Image
 def parse_image(image):
     img = Image.open(image)
     img_text = pytesseract.image_to_string(img)
@@ -31,7 +31,8 @@ def parse_image(image):
 
 
 def process_file_type(file):
-    print(file.type)
+    file.seek(0)
+    # print(file.type)
     if "image" in file.type:
         base64_image = base64.b64encode(file.read()).decode("utf-8")
         img_url = f"data:{file.type};base64,{base64_image}"
@@ -39,11 +40,13 @@ def process_file_type(file):
     
     elif "csv" in file.type:
         df = pd.read_csv(file)
-        csv_text = df.to_string()
+        df.columns = df.columns.map(str)
+        csv_text = df.to_csv(index=False)
         return csv_text
 
     elif "openxml" in file.type:
         df = pd.read_excel(file)
+        df.columns = df.columns.map(str, )
         xlsx_text = df.to_csv(index=False)
         return xlsx_text
 
@@ -64,6 +67,7 @@ def process_file_type(file):
 
 def preview_file(file):
     """Preview different file types in Streamlit based on extension and MIME type."""
+    file.seek(0)
     st.markdown(f"#### Preview: `{file.name}`")
 
     # Image

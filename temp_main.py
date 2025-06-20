@@ -77,9 +77,11 @@ with st.sidebar:
                                 type=["png", "jpg", "jpeg", "json", "csv", "xlsx", "pdf"],
                                 accept_multiple_files=True)
     
+    processed_files = []
     for file in uploaded:
         file_type = file.type
         file_text = process_file_type(file=file)
+        processed_files.append((file, file_text))
 
     # Clear conversation button
     if st.button("Clear Conversation"):
@@ -104,7 +106,7 @@ col1, col2 = st.columns([2.5, 2.5])
 
 with col1:
     st.subheader("Dataset Preview")
-    for file in uploaded:
+    for file, file_text in processed_files:
         preview_file(file)
         
         # Process File Text to Add it to LLM's messages
